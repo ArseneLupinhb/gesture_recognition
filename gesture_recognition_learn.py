@@ -80,17 +80,15 @@ class MyDNN(fluid.dygraph.Layer):
 		self.hidden2 = Linear(100, 100, act="relu")
 		self.hidden3 = Linear(100, 100, act="relu")
 		self.hidden4 = Linear(100, 100, act="relu")
-		self.hidden5 = Linear(100, 100, act="relu")
-		self.hidden6 = Linear(3*100*100, 10, act='softmax')
+		self.hidden5 = Linear(3*100*100, 10, act='softmax')
 
 	def forward(self, input):
 		x = self.hidden1(input)
 		x = self.hidden2(x)
 		x = self.hidden3(x)
 		x = self.hidden4(x)
-		x = self.hidden5(x)
 		x = fluid.layers.reshape(x, shape=[-1, 3*100*100])
-		y = self.hidden6(x)
+		y = self.hidden5(x)
 		return y
 
 
