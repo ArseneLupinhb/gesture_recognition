@@ -62,14 +62,13 @@ def data_reader(data_list_path):
 
 	return paddle.reader.xmap_readers(data_mapper, reader, cpu_count(), 512)
 
-
-def get_reader():
+def get_reader(batch_size):
 	global train_reader, test_reader
 	# 用于训练的数据提供器
 	train_reader = paddle.batch(reader=paddle.reader.shuffle(reader=data_reader('./train_data.list'), buf_size=256),
-	                            batch_size=32)
+	                            batch_size=batch_size)
 	# 用于测试的数据提供器
-	test_reader = paddle.batch(reader=data_reader('./test_data.list'), batch_size=32)
+	test_reader = paddle.batch(reader=data_reader('./test_data.list'), batch_size=batch_size)
 
 
 # 定义DNN网络
@@ -80,19 +79,34 @@ class MyDNN(fluid.dygraph.Layer):
 		self.hidden2 = Linear(100, 100, act="relu")
 		self.hidden3 = Linear(100, 100, act="relu")
 		self.hidden4 = Linear(100, 100, act="relu")
-		self.hidden5 = Linear(3*100*100, 10, act='softmax')
+		self.out = Linear(3*100*100, 10, act='softmax')
 
 	def forward(self, input):
 		x = self.hidden1(input)
+		# print("hidden1", x.shape)
 		x = self.hidden2(x)
+		# print("hidden2", x.shape)
 		x = self.hidden3(x)
+		# print("hidden3", x.shape)
 		x = self.hidden4(x)
+		# x = fluid.layers.dropout(x, dropout_prob=0.4)
 		x = fluid.layers.reshape(x, shape=[-1, 3*100*100])
-		y = self.hidden5(x)
+		y = self.out(x)
 		return y
 
 
-def train_model():
+
+def draw_process(title, color, iters, data, label):
+	plt.title(title, fontsize=24)
+	plt.xlabel("iter", fontsize=20)
+	plt.ylabel(label, fontsize=20)
+	plt.plot(iters, data, color=color, label=label)
+	plt.legend()
+	plt.grid()
+	plt.show()
+
+
+def train_model(epochs_num):
 	global model, batch_id, data, images, labels, image, label, predict, acc
 	# 用动态图进行训练
 	with fluid.dygraph.guard():
@@ -101,7 +115,9 @@ def train_model():
 		opt = fluid.optimizer.SGDOptimizer(learning_rate=0.01,
 		                                   parameter_list=model.parameters())  # 优化器选用SGD随机梯度下降，学习率为0.001.
 
-		epochs_num = 500  # 迭代次数
+		# epochs_num = 120  # 迭代次数
+		epochs_num = epochs_num  # 迭代次数
+
 
 		for pass_num in range(epochs_num):
 
@@ -120,24 +136,42 @@ def train_model():
 				avg_loss = fluid.layers.mean(loss)  # 获取loss值
 
 				acc = fluid.layers.accuracy(predict, label)  # 计算精度
-
-				if batch_id != 0 and batch_id % 50 == 0:
+				if batch_id % 1 == 0:
 					print(
-						"train_pass:{},batch_id:{},train_loss:{},train_acc:{}".format(pass_num, batch_id,
-						                                                              avg_loss.numpy(),
-						                                                              acc.numpy()))
+						"Loss at epoch {} step {}: {}, acc: {}".format(pass_num, batch_id, avg_loss.numpy(),
+						                                               acc.numpy()))
+
+				# print(
+				# 	"train_pass:{},batch_id:{},train_loss:{},train_acc:{}".format(pass_num, batch_id,
+				# 	                                                              avg_loss.numpy(),
+				# 	                                                              acc.numpy()))
+				# if batch_id != 0 and batch_id % 50 == 0:
+				# 	print(
+				# 		"train_pass:{},batch_id:{},train_loss:{},train_acc:{}".format(pass_num, batch_id,
+				# 		                                                              avg_loss.numpy(),
+				# 		                                                              acc.numpy()))
 
 				avg_loss.backward()
 				opt.minimize(avg_loss)
 				model.clear_gradients()
 
+				global all_train_iter
+				all_train_iter = all_train_iter + batch_size
+				# print("all_train_iter", all_train_iter, batch_size)
+				all_train_iters.append(all_train_iter)
+				all_train_costs.append(loss.numpy()[0])
+				all_train_accs.append(acc.numpy()[0])
+
+		draw_process("trainning loss", "red", all_train_iters, all_train_costs, "trainning loss")
+		draw_process("trainning acc", "green", all_train_iters, all_train_accs, "trainning acc")
 		fluid.save_dygraph(model.state_dict(), 'MyDNN')  # 保存模型
 
 
 def test_model():
 	global model, batch_id, data, images, labels, image, label, predict, acc
 	# 模型校验
-	with fluid.dygraph.guard():
+	with fluid.dygraph.guard(place=fluid.CUDAPlace(0)):
+	# with fluid.dygraph.guard():
 		accs = []
 		model_dict, _ = fluid.load_dygraph('MyDNN')
 		model = MyDNN()
@@ -187,10 +221,19 @@ def use_model():
 		# display(Image.open('手势.JPG'))
 		print(np.argmax(result.numpy()))
 
-
+ 
 if __name__ == '__main__':
-    pre_data()
-    get_reader()
-    train_model()
-    test_model()
-    use_model()
+	all_train_iter = 0
+	all_train_iters = []
+	all_train_costs = []
+	all_train_accs = []
+	# batch_size = 32
+	batch_size = 128
+	epochs_num = 500
+
+
+	pre_data()
+	get_reader(batch_size)
+	train_model(epochs_num)
+	test_model()
+	use_model()
